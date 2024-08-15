@@ -1,46 +1,3 @@
-# import cv2
-# import pytesseract
-# import numpy as np
-#
-# pytesseract.pytesseract.tesseract_cmd = r"D:\ahmed\PhD\tesseract.exe"
-#
-# # Load image, grayscale, Otsu's threshold
-# image = cv2.imread('img.png')
-# gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-# thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-#
-# # Morph open to remove noise
-# kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
-# opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-#
-# # Find contours and remove small noise
-# cnts = cv2.findContours(opening, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-# cnts = cnts[0] if len(cnts) == 2 else cnts[1]
-# for c in cnts:
-#     area = cv2.contourArea(c)
-#     if area < 50:
-#         cv2.drawContours(opening, [c], -1, 0, -1)
-#
-# # Invert and apply slight Gaussian blur
-# result = 255 - opening
-# result = cv2.GaussianBlur(result, (3,3), 0)
-#
-# # Perform OCR
-# data = pytesseract.image_to_string(result, lang='eng', config='--psm 6')
-# print(data)
-#
-# cv2.imshow('thresh', thresh)
-# cv2.imshow('opening', opening)
-# cv2.imshow('result', result)
-# cv2.waitKey()
-
-from pdf2image import convert_from_path
-import cv2
-import numpy as np
-from PIL import Image
-import pytesseract
-import re
-from difflib import get_close_matches
 
 pytesseract.pytesseract.tesseract_cmd = r"D:\ahmed\PhD\tesseract.exe"
 
@@ -87,11 +44,6 @@ known_words_ar = {
     "الرقم": "الرقم", "الضريبي": "الضريبي", "فاتورة": "فاتورة", "الاجمالي": "الإجمالي",
     "قيمة": "قيمة", "الخصم": "الخصم", "المبلغ": "المبلغ"
 }
-from spellchecker import SpellChecker
-from camel_tools.spelling import SpellingReplacer
-# Initialize spell checkers
-spell_en = SpellChecker(language='en')
-replacer = SpellingReplacer()
 
 def clean_text(text):
     cleaned_lines = []
@@ -102,34 +54,64 @@ def clean_text(text):
             cleaned_lines.append(cleaned_line)
     # return cleaned_lines
     return '\n'.join(cleaned_lines)
-
-def correct_arabic(text):
-    # Use Camel Tools for Arabic spelling correction
-    corrected_text = replacer.replace(text)
-    return corrected_text
-
-def correct_english(text):
-    words = text.split()
-    corrected_words = [spell_en.candidates(word).pop() if spell_en.unknown([word]) else word for word in words]
-    return ' '.join(corrected_words)
-
-def process_text(text):
-    cleaned_lines = clean_text(text)
-    corrected_lines = []
-    for line in cleaned_lines:
-        if any(char.isalpha() for char in line):
-            if re.search(r'[\u0621-\u064A]', line):  # Check for Arabic characters
-                corrected_lines.append(correct_arabic(line))
-            else:
-                corrected_lines.append(correct_english(line))
-    return '\n'.join(corrected_lines)
 # Save the extracted text
 with open('extracted_text.txt', 'w', encoding='utf-8') as file:
     # Apply the correction and autocorrect
     # final_output = process_text(extracted_text)
     final_output = clean_text(extracted_text)
-    # corrected_text = correct_extracted_text(extracted_text)
-    autocorrected_text = autocorrect(final_output, known_words_en, known_words_ar)
-    file.write(autocorrected_text)
+    file.write(final_output)
 
-print("Text extraction completed.")
+
+
+#======================[enhancement after extraction]=======================
+from ar_corrector.corrector import Corrector
+corr = Corrector()
+
+
+from language_detector import detect_language
+
+import re
+from textblob import TextBlob
+
+after_correct=[]
+file = open("extracted_text.txt", "r",encoding='utf-8')
+
+def replace_page_number(line):
+    page_pattern = re.compile(r'^Page\s*(\d+)', re.IGNORECASE)
+    match = page_pattern.match(line)
+    if match:
+        page_number = match.group(1)
+        return f'==================[page number: {page_number}]======='
+    return line
+
+while True:
+	content=file.readline()
+	if not content:
+		break
+	line=[]
+	for word in content.split(" "):
+		if(len(word)==1):
+			continue
+		if detect_language(word) == 'Arabic':
+			if re.search(r'[a-zA-Z0-9]',word):
+				word=re.sub(r'[^a-zA-Z0-9\s]', '', word)
+			word=corr.contextual_correct(word)
+			if word:
+				line.append(word)
+			# line.append(corr.spell(word))
+		else:
+			if (len(word)==2 and word[0]==word[1]):
+				continue
+			elif  word.isupper():
+				line.append(word)
+			else:
+				word=TextBlob(word).correct()
+				line.append(str(word))
+	after_correct.append(' '.join(line))
+
+file.close()
+words=[]
+for line in after_correct:
+	words.append(replace_page_number(line))
+with open('extracted_text2.txt', 'w', encoding='utf-8') as file:
+	file.write(''.join(words))
